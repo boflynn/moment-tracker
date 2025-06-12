@@ -4,7 +4,7 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Countdown Tracker</title>
+    <title>Moment Tracker</title>
     <!-- Tailwind CSS CDN for styling -->
     <script src="https://cdn.tailwindcss.com"></script>
     <style>
@@ -123,14 +123,25 @@
             window.history.replaceState(null, '', `?data=${encodedData}`);
         }
 
-        // Function to calculate and format time remaining
+        /**
+         * Calculates and formats the time remaining until or since the target date.
+         * Displays as "Xd Yh Zm As" or "Xd Yh Zm As ago".
+         * @param {string} targetDate The target date string (ISO format).
+         * @returns {string} The formatted time string.
+         */
         function getTimeRemaining(targetDate) {
             const now = new Date().getTime();
-            const distance = new Date(targetDate).getTime() - now;
+            const targetTime = new Date(targetDate).getTime();
+            let distance = targetTime - now;
+            let suffix = '';
 
             if (distance < 0) {
-                return "Event has passed!";
+                suffix = ' ago'; // Add 'ago' for past dates
+                distance = Math.abs(distance); // Use absolute distance for calculations
+            } else if (distance === 0) {
+                return "Just now!";
             }
+
 
             const days = Math.floor(distance / (1000 * 60 * 60 * 24));
             const hours = Math.floor((distance % (1000 * 60 * 60 * 24)) / (1000 * 60 * 60));
@@ -144,7 +155,7 @@
             if (days > 0 || hours > 0 || minutes > 0) timeString += `${minutes}m `;
             timeString += `${seconds}s`; // Seconds always shown
 
-            return timeString.trim(); // Remove trailing space
+            return timeString.trim() + suffix; // Add suffix at the end
         }
 
         // Function to render a single countdown card
@@ -174,11 +185,15 @@
 
             // Update time remaining every second
             const updateTime = () => {
-                timeRemainingElem.textContent = getTimeRemaining(countdown.targetDate);
-                if (getTimeRemaining(countdown.targetDate) === "Event has passed!") {
-                    // Optionally change color or disable update when event passes
+                const timeStr = getTimeRemaining(countdown.targetDate);
+                timeRemainingElem.textContent = timeStr;
+                // Dynamically change text color based on past/future
+                if (timeStr.includes('ago')) {
                     timeRemainingElem.classList.remove('text-blue-600');
-                    timeRemainingElem.classList.add('text-gray-400');
+                    timeRemainingElem.classList.add('text-gray-500'); // Gray for past events
+                } else {
+                    timeRemainingElem.classList.remove('text-gray-500');
+                    timeRemainingElem.classList.add('text-blue-600'); // Blue for future events
                 }
             };
             updateTime(); // Initial update
@@ -219,7 +234,6 @@
 
             // When type="date", new Date(dateString) automatically sets time to midnight in local timezone
             const targetDateTime = new Date(targetDateStr);
-            const now = new Date();
 
             if (isNaN(targetDateTime.getTime())) { // Check for invalid date
                 errorMessage.textContent = 'Invalid date format. Please use the date picker.';
@@ -227,22 +241,8 @@
                 return;
             }
 
-            // Ensure the target date is not in the past relative to the current time,
-            // or if it's the same day, ensure it's not before current midnight.
-            // Adjusting for midnight default: If the target date is today but the current time
-            // is past midnight, it should still be considered in the future unless the *day* itself
-            // has passed.
-            const targetDateMidnight = new Date(targetDateStr);
-            targetDateMidnight.setHours(0, 0, 0, 0); // Set to midnight of the target date
-
-            const nowMidnight = new Date();
-            nowMidnight.setHours(0, 0, 0, 0); // Set to midnight of today
-
-            if (targetDateMidnight < nowMidnight) { // Check if the target date (day) is in the past
-                errorMessage.textContent = 'Target date must be today or in the future.';
-                errorMessage.classList.remove('hidden');
-                return;
-            }
+            // Removed the validation that prevented adding past dates.
+            // Now, any valid date (past, present, or future) is accepted.
 
             errorMessage.classList.add('hidden'); // Hide error message on success
 
@@ -273,11 +273,12 @@
 
         // Set the minimum date for the date input to today
         // This prevents users from easily selecting past dates.
-        const now = new Date();
-        const year = now.getFullYear();
-        const month = (now.getMonth() + 1).toString().padStart(2, '0');
-        const day = now.getDate().toString().padStart(2, '0');
-        targetDateInput.min = `${year}-${month}-${day}`;
+        // Removed `targetDateInput.min` setting to allow selection of any date (past, present, future)
+        // const now = new Date();
+        // const year = now.getFullYear();
+        // const month = (now.getMonth() + 1).toString().padStart(2, '0');
+        // const day = now.getDate().toString().padStart(2, '0');
+        // targetDateInput.min = `${year}-${month}-${day}`;
 
     </script>
 </body>
