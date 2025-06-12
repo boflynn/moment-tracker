@@ -170,7 +170,8 @@
 
             const dateElem = document.createElement('p');
             dateElem.className = 'text-sm text-gray-500 mb-4';
-            dateElem.textContent = `Target: ${new Date(countdown.targetDate).toLocaleString()}`;
+            // Changed to toLocaleDateString() to exclude the time part
+            dateElem.textContent = `Target: ${new Date(countdown.targetDate).toLocaleDateString()}`;
 
             const timeRemainingElem = document.createElement('p');
             timeRemainingElem.className = 'text-3xl font-bold text-blue-600 mb-4'; // Bigger text for time remaining
