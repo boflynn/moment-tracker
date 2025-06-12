@@ -82,24 +82,34 @@
         const errorMessage = document.getElementById('errorMessage');
         const noCountdownsMessage = document.getElementById('noCountdownsMessage');
 
-        // Function to encode countdowns array into a URL-friendly string
+        /**
+         * Encodes the countdowns array into a URL-friendly Base64 string.
+         * The process is: JSON.stringify -> btoa (Base64) -> encodeURIComponent.
+         * @param {Array<Object>} data The array of countdown objects.
+         * @returns {string} The encoded string.
+         */
         function encodeCountdowns(data) {
             try {
-                // Stringify the array and then encode it for URL safety
                 const jsonString = JSON.stringify(data);
-                return encodeURIComponent(jsonString);
+                const base64String = btoa(jsonString); // Encode to Base64
+                return encodeURIComponent(base64String); // Encode for URL safety
             } catch (e) {
                 console.error("Error encoding countdowns:", e);
                 return '';
             }
         }
 
-        // Function to decode countdowns array from a URL string
+        /**
+         * Decodes the URL-friendly Base64 string back into the countdowns array.
+         * The process is: decodeURIComponent -> atob (Base64 decode) -> JSON.parse.
+         * @param {string} encodedString The encoded string from the URL.
+         * @returns {Array<Object>} The decoded array of countdown objects, or an empty array on error.
+         */
         function decodeCountdowns(encodedString) {
             try {
-                // Decode the URL string and then parse the JSON
-                const decodedString = decodeURIComponent(encodedString);
-                return JSON.parse(decodedString);
+                const decodedUriComponent = decodeURIComponent(encodedString); // Decode URL component
+                const decodedBase64 = atob(decodedUriComponent); // Decode from Base64
+                return JSON.parse(decodedBase64); // Parse JSON string
             } catch (e) {
                 console.error("Error decoding countdowns:", e);
                 return []; // Return empty array on error
