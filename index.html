@@ -44,7 +44,7 @@
                 </div>
                 <div class="md:col-span-1">
                     <label for="targetDate" class="block text-sm font-medium text-gray-700 mb-1">Target Date</label>
-                    <!-- Changed input type from datetime-local to date to allow optional time -->
+                    <!-- Input type changed to 'date' for selecting only date -->
                     <input type="date" id="targetDate"
                         class="w-full px-4 py-2 border border-gray-300 rounded-md focus:ring-blue-500 focus:border-blue-500 shadow-sm transition duration-150 ease-in-out" />
                 </div>
@@ -232,8 +232,11 @@
                 return;
             }
 
-            // When type="date", new Date(dateString) automatically sets time to midnight in local timezone
-            const targetDateTime = new Date(targetDateStr);
+            // Parse YYYY-MM-DD string into year, month, day
+            const targetDateParts = targetDateStr.split('-').map(Number);
+            // Create a Date object for local midnight (00:00:00) on the target date.
+            // Month is 0-indexed in Date constructor (e.g., August is 7, not 8).
+            const targetDateTime = new Date(targetDateParts[0], targetDateParts[1] - 1, targetDateParts[2], 0, 0, 0);
 
             if (isNaN(targetDateTime.getTime())) { // Check for invalid date
                 errorMessage.textContent = 'Invalid date format. Please use the date picker.';
@@ -241,13 +244,11 @@
                 return;
             }
 
-            // Removed the validation that prevented adding past dates.
-            // Now, any valid date (past, present, or future) is accepted.
-
             errorMessage.classList.add('hidden'); // Hide error message on success
 
             // Add new countdown
-            // Store as ISO string to preserve date and time accurately, even if time is midnight.
+            // Store as ISO string (which will convert local midnight to its UTC equivalent).
+            // When re-parsed and displayed with toLocaleString(), it will revert to local time.
             countdowns.push({ description: description, targetDate: targetDateTime.toISOString() });
             descriptionInput.value = ''; // Clear input
             targetDateInput.value = ''; // Clear input
@@ -270,16 +271,6 @@
 
             renderCountdowns();
         };
-
-        // Set the minimum date for the date input to today
-        // This prevents users from easily selecting past dates.
-        // Removed `targetDateInput.min` setting to allow selection of any date (past, present, future)
-        // const now = new Date();
-        // const year = now.getFullYear();
-        // const month = (now.getMonth() + 1).toString().padStart(2, '0');
-        // const day = now.getDate().toString().padStart(2, '0');
-        // targetDateInput.min = `${year}-${month}-${day}`;
-
     </script>
 </body>
 
