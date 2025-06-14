@@ -37,6 +37,50 @@
             color: #64748b;
             /* Gray text for stopped time */
         }
+
+        /* Message box styles */
+        .message-box-overlay {
+            position: fixed;
+            top: 0;
+            left: 0;
+            width: 100%;
+            height: 100%;
+            background: rgba(0, 0, 0, 0.5);
+            display: flex;
+            justify-content: center;
+            align-items: center;
+            z-index: 1000;
+        }
+
+        .message-box {
+            background: white;
+            padding: 2rem;
+            border-radius: 0.5rem;
+            box-shadow: 0 10px 15px -3px rgba(0, 0, 0, 0.1), 0 4px 6px -2px rgba(0, 0, 0, 0.05);
+            max-width: 90%;
+            width: 400px;
+            text-align: center;
+        }
+
+        .message-box h3 {
+            font-size: 1.5rem;
+            font-weight: bold;
+            margin-bottom: 1rem;
+        }
+
+        .message-box p {
+            margin-bottom: 1.5rem;
+            word-wrap: break-word;
+            /* Ensure long URLs wrap */
+        }
+
+        .message-box button {
+            padding: 0.75rem 1.5rem;
+            border-radius: 0.375rem;
+            font-weight: 600;
+            cursor: pointer;
+            transition: background-color 0.15s ease-in-out;
+        }
     </style>
 </head>
 
@@ -57,7 +101,6 @@
                 </div>
                 <div class="md:col-span-1">
                     <label for="targetDate" class="block text-sm font-medium text-gray-700 mb-1">Target Date</label>
-                    <!-- Input type changed to 'date' for selecting only date -->
                     <input type="date" id="targetDate"
                         class="w-full px-4 py-2 border border-gray-300 rounded-md focus:ring-blue-500 focus:border-blue-500 shadow-sm transition duration-150 ease-in-out" />
                 </div>
@@ -71,12 +114,31 @@
             <p id="errorMessage" class="text-red-600 text-sm mt-2 hidden text-center"></p>
         </div>
 
+        <!-- Action Buttons -->
+        <div class="flex flex-col sm:flex-row justify-center items-center gap-4 mb-8">
+            <button id="shareCollection"
+                class="bg-green-600 hover:bg-green-700 text-white font-semibold py-2 px-6 rounded-md shadow-md focus:outline-none focus:ring-2 focus:ring-green-500 focus:ring-offset-2 transition duration-150 ease-in-out transform hover:scale-105 w-full sm:w-auto">
+                Share This Collection
+            </button>
+        </div>
+
         <!-- Countdown List Section -->
         <div id="countdownsContainer" class="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-6">
             <!-- Countdown cards will be rendered here by JavaScript -->
             <p id="noCountdownsMessage" class="col-span-full text-center text-gray-500 text-lg hidden">
                 No countdowns added yet. Add one above!
             </p>
+        </div>
+    </div>
+
+    <!-- Message Box Template -->
+    <div id="messageBoxOverlay" class="message-box-overlay hidden">
+        <div class="message-box">
+            <h3 id="messageBoxTitle"></h3>
+            <p id="messageBoxContent"></p>
+            <button id="messageBoxClose" class="bg-blue-600 hover:bg-blue-700 text-white">Close</button>
+            <button id="messageBoxCopy" class="bg-gray-200 hover:bg-gray-300 text-gray-800 ml-2 hidden">Copy
+                Link</button>
         </div>
     </div>
 
@@ -89,6 +151,9 @@
         // Object to store intervals, so we can clear them when a countdown is removed or stopped
         const countdownIntervals = {};
 
+        // Key for localStorage
+        const LOCAL_STORAGE_KEY = 'momentTrackerCountdowns';
+
         // Get DOM elements
         const descriptionInput = document.getElementById('description');
         const targetDateInput = document.getElementById('targetDate');
@@ -96,6 +161,14 @@
         const countdownsContainer = document.getElementById('countdownsContainer');
         const errorMessage = document.getElementById('errorMessage');
         const noCountdownsMessage = document.getElementById('noCountdownsMessage');
+        const shareCollectionButton = document.getElementById('shareCollection');
+
+        // Message box elements
+        const messageBoxOverlay = document.getElementById('messageBoxOverlay');
+        const messageBoxTitle = document.getElementById('messageBoxTitle');
+        const messageBoxContent = document.getElementById('messageBoxContent');
+        const messageBoxClose = document.getElementById('messageBoxClose');
+        const messageBoxCopy = document.getElementById('messageBoxCopy');
 
         /**
          * Encodes the countdowns array into a URL-friendly Base64 string.
@@ -117,7 +190,7 @@
         /**
          * Decodes the URL-friendly Base64 string back into the countdowns array.
          * The process is: decodeURIComponent -> atob (Base64 decode) -> JSON.parse.
-         * @param {string} encodedString The encoded string from the URL.
+         * @param {string} encodedString The encoded string from the URL or localStorage.
          * @returns {Array<Object>} The decoded array of countdown objects, or an empty array on error.
          */
         function decodeCountdowns(encodedString) {
@@ -131,11 +204,69 @@
             }
         }
 
-        // Function to update the URL with the current countdowns data
-        function updateUrl() {
+        /**
+         * Saves the current countdowns array to localStorage.
+         */
+        function saveCountdownsToLocalStorage() {
+            try {
+                const encodedData = encodeCountdowns(countdowns);
+                localStorage.setItem(LOCAL_STORAGE_KEY, encodedData);
+                console.log("Countdowns saved to localStorage.");
+            } catch (e) {
+                console.error("Error saving to localStorage:", e);
+                showMessageBox('Save Error', 'Failed to save your countdowns locally. Data might not persist.');
+            }
+        }
+
+        /**
+         * Loads countdowns from localStorage, or from URL if localStorage is empty.
+         */
+        function loadCountdowns() {
+            const urlParams = new URLSearchParams(window.location.search);
+            const encodedDataFromUrl = urlParams.get('data');
+            const encodedDataFromLocalStorage = localStorage.getItem(LOCAL_STORAGE_KEY);
+
+            let dataToLoad = null;
+
+            if (encodedDataFromUrl) {
+                // If there's data in the URL, prioritize it (for sharing)
+                dataToLoad = encodedDataFromUrl;
+                // Optionally, update local storage with this shared data if it's different
+                if (encodedDataFromUrl !== encodedDataFromLocalStorage) {
+                    localStorage.setItem(LOCAL_STORAGE_KEY, encodedDataFromUrl);
+                }
+            } else if (encodedDataFromLocalStorage) {
+                // Otherwise, load from local storage
+                dataToLoad = encodedDataFromLocalStorage;
+            }
+
+            if (dataToLoad) {
+                try {
+                    const decodedData = decodeCountdowns(dataToLoad);
+                    if (Array.isArray(decodedData)) {
+                        countdowns = decodedData.map(c => ({
+                            description: c.description,
+                            targetDate: c.targetDate,
+                            stoppedAt: c.stoppedAt || null
+                        }));
+                        console.log("Countdowns loaded:", countdowns.length, "items.");
+                    }
+                } catch (e) {
+                    console.error("Error loading or parsing countdowns:", e);
+                    countdowns = []; // Reset on parsing error
+                    showMessageBox('Load Error', 'Failed to load countdowns. Data might be corrupted. Starting fresh.');
+                }
+            }
+            renderCountdowns();
+        }
+
+        // Function to update the URL (used primarily for sharing now)
+        function updateUrlForSharing() {
             const encodedData = encodeCountdowns(countdowns);
-            // Use replaceState to avoid adding multiple history entries for small changes
-            window.history.replaceState(null, '', `?data=${encodedData}`);
+            // We use history.pushState here to create a new history entry,
+            // so the user can easily go back to a non-shared URL if desired,
+            // but the main usage will be copying this URL.
+            window.history.pushState(null, '', `?data=${encodedData}`);
         }
 
         /**
@@ -149,13 +280,11 @@
             const targetTime = new Date(targetDate).getTime();
             let distance;
             let suffix = '';
-            let isPast = false;
 
             if (stoppedAt) {
                 // If stopped, calculate distance from targetDate to stoppedAt
                 distance = new Date(stoppedAt).getTime() - targetTime;
                 suffix = ' (stopped)';
-                isPast = true; // A stopped event will always be considered 'past' for calculation purposes here
             } else {
                 // If not stopped, calculate distance from targetDate to now
                 const now = new Date().getTime();
@@ -164,7 +293,6 @@
                 if (distance < 0) {
                     suffix = ' ago'; // Add 'ago' for past dates
                     distance = Math.abs(distance); // Use absolute distance for calculations
-                    isPast = true;
                 } else if (distance === 0) {
                     return "Just now!";
                 }
@@ -197,7 +325,6 @@
 
             const dateElem = document.createElement('p');
             dateElem.className = 'text-sm text-gray-500 mb-4';
-            // Changed to toLocaleDateString() to exclude the time part
             dateElem.textContent = `Target: ${new Date(countdown.targetDate).toLocaleDateString()}`;
 
             const timeRemainingElem = document.createElement('p');
@@ -241,7 +368,8 @@
                     timeRemainingElem.textContent = timeStr;
 
                     // Dynamically change text color based on past/future
-                    if (new Date(countdown.targetDate).getTime() < now) { // Check if the *original* event time is in the past
+                    // Check if the *original* event time is in the past relative to *now*
+                    if (new Date(countdown.targetDate).getTime() < new Date().getTime()) {
                         timeRemainingElem.classList.remove('text-blue-600');
                         timeRemainingElem.classList.add('text-gray-500'); // Gray for past events
                     } else {
@@ -251,7 +379,7 @@
 
                     // If event has passed and is not stopped, ensure the stop button is visible.
                     // This handles cases where a future event passes while the app is open.
-                    if (!countdown.stoppedAt && new Date(countdown.targetDate).getTime() < now) {
+                    if (!countdown.stoppedAt && new Date(countdown.targetDate).getTime() < new Date().getTime()) {
                         if (!actionsContainer.querySelector('.bg-yellow-500')) { // Check if button is already there
                             const stopButton = document.createElement('button');
                             stopButton.className = 'bg-yellow-500 hover:bg-yellow-600 text-white font-medium py-2 px-4 rounded-md shadow-sm transition duration-150 ease-in-out';
@@ -303,7 +431,7 @@
             }
 
             countdowns = countdowns.filter((_, index) => index !== indexToRemove);
-            updateUrl();
+            saveCountdownsToLocalStorage(); // Save changes to localStorage
             renderCountdowns(); // Re-render all to adjust indices and intervals
         }
 
@@ -311,10 +439,12 @@
         function stopCountdown(indexToStop) {
             if (countdowns[indexToStop]) {
                 countdowns[indexToStop].stoppedAt = new Date().toISOString(); // Record stop time
-                updateUrl();
+                saveCountdownsToLocalStorage(); // Save changes to localStorage
                 renderCountdowns(); // Re-render to update the display and clear interval
             }
         }
+
+        // --- Event Listeners ---
 
         // Event listener for adding a new countdown
         addCountdownButton.addEventListener('click', () => {
@@ -348,29 +478,73 @@
             descriptionInput.value = ''; // Clear input
             targetDateInput.value = ''; // Clear input
 
-            updateUrl();
+            saveCountdownsToLocalStorage(); // Save changes to localStorage
             renderCountdowns();
         });
 
-        // Initialize on page load: check URL for existing countdowns
-        window.onload = function () {
-            const urlParams = new URLSearchParams(window.location.search);
-            const encodedData = urlParams.get('data');
+        // Event listener for Share Collection button
+        shareCollectionButton.addEventListener('click', () => {
+            updateUrlForSharing(); // Update URL with current data for sharing
+            const shareableLink = window.location.href; // Get the full current URL
+            showMessageBox('Share Your Collection', 'Copy this link to share your current countdowns:', shareableLink);
+        });
 
-            if (encodedData) {
-                const decodedData = decodeCountdowns(encodedData);
-                if (Array.isArray(decodedData)) {
-                    // Ensure 'stoppedAt' property exists for older saved countdowns
-                    countdowns = decodedData.map(c => ({
-                        description: c.description,
-                        targetDate: c.targetDate,
-                        stoppedAt: c.stoppedAt || null // Default to null if undefined
-                    }));
-                }
+        // --- Message Box Functions ---
+
+        /**
+         * Displays a custom message box.
+         * @param {string} title The title of the message box.
+         * @param {string} content The main content/message.
+         * @param {string | null} linkToShow Optional: A link to display and allow copying.
+         */
+        function showMessageBox(title, content, linkToShow = null) {
+            messageBoxTitle.textContent = title;
+            messageBoxContent.innerHTML = content; // Use innerHTML to allow for <a> tag
+            messageBoxOverlay.classList.remove('hidden');
+            messageBoxCopy.classList.add('hidden'); // Hide copy button by default
+
+            if (linkToShow) {
+                // Add the link to the content, and show copy button
+                messageBoxContent.innerHTML += `<br><a href="${linkToShow}" target="_blank" class="text-blue-600 hover:underline block mt-2">${linkToShow}</a>`;
+                messageBoxCopy.classList.remove('hidden');
+                messageBoxCopy.onclick = () => copyTextToClipboard(linkToShow);
             }
+        }
 
-            renderCountdowns();
-        };
+        /**
+         * Hides the custom message box.
+         */
+        function hideMessageBox() {
+            messageBoxOverlay.classList.add('hidden');
+            messageBoxTitle.textContent = '';
+            messageBoxContent.textContent = '';
+            messageBoxCopy.onclick = null; // Clear click handler
+        }
+
+        // Attach event listener for closing message box
+        messageBoxClose.addEventListener('click', hideMessageBox);
+
+        /**
+         * Copies text to the clipboard using the execCommand method.
+         * @param {string} text The text to copy.
+         */
+        function copyTextToClipboard(text) {
+            const textarea = document.createElement('textarea');
+            textarea.value = text;
+            document.body.appendChild(textarea);
+            textarea.select();
+            try {
+                document.execCommand('copy');
+                showMessageBox('Link Copied!', 'The shareable link has been copied to your clipboard.', text);
+            } catch (err) {
+                console.error('Failed to copy text: ', err);
+                showMessageBox('Copy Failed', 'Unable to copy the link. Please copy it manually.', text);
+            }
+            document.body.removeChild(textarea);
+        }
+
+        // --- Initial Load ---
+        window.onload = loadCountdowns;
     </script>
 </body>
 
