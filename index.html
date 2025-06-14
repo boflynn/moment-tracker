@@ -24,6 +24,19 @@
         .countdown-card:hover {
             transform: translateY(-5px);
         }
+
+        /* Style for stopped events */
+        .stopped-event {
+            background-color: #f0f4f8;
+            /* Lighter background for stopped events */
+            border-color: #cbd5e0;
+            /* Grayer border for stopped events */
+        }
+
+        .stopped-text {
+            color: #64748b;
+            /* Gray text for stopped time */
+        }
     </style>
 </head>
 
@@ -73,6 +86,8 @@
 
         // Array to store countdown objects
         let countdowns = [];
+        // Object to store intervals, so we can clear them when a countdown is removed or stopped
+        const countdownIntervals = {};
 
         // Get DOM elements
         const descriptionInput = document.getElementById('description');
@@ -125,23 +140,35 @@
 
         /**
          * Calculates and formats the time remaining until or since the target date.
-         * Displays as "Xd Yh Zm As" or "Xd Yh Zm As ago".
+         * Displays as "Xd Yh Zm As" or "Xd Yh Zm As ago" or "Xd Yh Zm As (stopped)".
          * @param {string} targetDate The target date string (ISO format).
+         * @param {string | null} stoppedAt The ISO string timestamp when the event was stopped, or null.
          * @returns {string} The formatted time string.
          */
-        function getTimeRemaining(targetDate) {
-            const now = new Date().getTime();
+        function getTimeRemaining(targetDate, stoppedAt) {
             const targetTime = new Date(targetDate).getTime();
-            let distance = targetTime - now;
+            let distance;
             let suffix = '';
+            let isPast = false;
 
-            if (distance < 0) {
-                suffix = ' ago'; // Add 'ago' for past dates
-                distance = Math.abs(distance); // Use absolute distance for calculations
-            } else if (distance === 0) {
-                return "Just now!";
+            if (stoppedAt) {
+                // If stopped, calculate distance from targetDate to stoppedAt
+                distance = new Date(stoppedAt).getTime() - targetTime;
+                suffix = ' (stopped)';
+                isPast = true; // A stopped event will always be considered 'past' for calculation purposes here
+            } else {
+                // If not stopped, calculate distance from targetDate to now
+                const now = new Date().getTime();
+                distance = targetTime - now;
+
+                if (distance < 0) {
+                    suffix = ' ago'; // Add 'ago' for past dates
+                    distance = Math.abs(distance); // Use absolute distance for calculations
+                    isPast = true;
+                } else if (distance === 0) {
+                    return "Just now!";
+                }
             }
-
 
             const days = Math.floor(distance / (1000 * 60 * 60 * 24));
             const hours = Math.floor((distance % (1000 * 60 * 60 * 24)) / (1000 * 60 * 60));
@@ -162,7 +189,7 @@
         function renderCountdownCard(countdown, index) {
             const card = document.createElement('div');
             card.id = `countdown-${index}`; // Assign a unique ID for updates
-            card.className = 'countdown-card bg-white p-5 rounded-lg border border-gray-200 flex flex-col justify-between';
+            card.className = `countdown-card bg-white p-5 rounded-lg border border-gray-200 flex flex-col justify-between ${countdown.stoppedAt ? 'stopped-event' : ''}`;
 
             const descriptionElem = document.createElement('h3');
             descriptionElem.className = 'text-xl font-semibold text-gray-800 mb-3';
@@ -174,35 +201,88 @@
             dateElem.textContent = `Target: ${new Date(countdown.targetDate).toLocaleDateString()}`;
 
             const timeRemainingElem = document.createElement('p');
-            timeRemainingElem.className = 'text-3xl font-bold text-blue-600 mb-4'; // Bigger text for time remaining
+            timeRemainingElem.className = `text-3xl font-bold ${countdown.stoppedAt ? 'text-gray-500 stopped-text' : 'text-blue-600'} mb-4`;
 
+            const actionsContainer = document.createElement('div');
+            actionsContainer.className = 'flex justify-end space-x-2 mt-auto'; // Flex container for buttons
+
+            // Remove Button (always present)
             const removeButton = document.createElement('button');
-            removeButton.className = 'bg-red-500 hover:bg-red-600 text-white font-medium py-2 px-4 rounded-md shadow-sm transition duration-150 ease-in-out self-end mt-auto';
+            removeButton.className = 'bg-red-500 hover:bg-red-600 text-white font-medium py-2 px-4 rounded-md shadow-sm transition duration-150 ease-in-out';
             removeButton.textContent = 'Remove';
             removeButton.onclick = () => removeCountdown(index);
+            actionsContainer.appendChild(removeButton);
 
-            card.append(descriptionElem, dateElem, timeRemainingElem, removeButton);
+            // Stop Button (conditionally present)
+            const targetTime = new Date(countdown.targetDate).getTime();
+            const now = new Date().getTime();
+
+            // Only show stop button if event is in the past AND not already stopped
+            if (!countdown.stoppedAt && targetTime < now) {
+                const stopButton = document.createElement('button');
+                stopButton.className = 'bg-yellow-500 hover:bg-yellow-600 text-white font-medium py-2 px-4 rounded-md shadow-sm transition duration-150 ease-in-out';
+                stopButton.textContent = 'Stop Tracking';
+                stopButton.onclick = () => stopCountdown(index);
+                actionsContainer.appendChild(stopButton);
+            }
+
+            card.append(descriptionElem, dateElem, timeRemainingElem, actionsContainer);
             countdownsContainer.appendChild(card);
 
-            // Update time remaining every second
-            const updateTime = () => {
-                const timeStr = getTimeRemaining(countdown.targetDate);
-                timeRemainingElem.textContent = timeStr;
-                // Dynamically change text color based on past/future
-                if (timeStr.includes('ago')) {
-                    timeRemainingElem.classList.remove('text-blue-600');
-                    timeRemainingElem.classList.add('text-gray-500'); // Gray for past events
-                } else {
-                    timeRemainingElem.classList.remove('text-gray-500');
-                    timeRemainingElem.classList.add('text-blue-600'); // Blue for future events
-                }
-            };
-            updateTime(); // Initial update
-            setInterval(updateTime, 1000); // Update every second
+            // Clear any existing interval for this card before setting a new one
+            if (countdownIntervals[index]) {
+                clearInterval(countdownIntervals[index]);
+            }
+
+            // Update time remaining only if the event is not stopped
+            if (!countdown.stoppedAt) {
+                const updateTime = () => {
+                    const timeStr = getTimeRemaining(countdown.targetDate, countdown.stoppedAt);
+                    timeRemainingElem.textContent = timeStr;
+
+                    // Dynamically change text color based on past/future
+                    if (new Date(countdown.targetDate).getTime() < now) { // Check if the *original* event time is in the past
+                        timeRemainingElem.classList.remove('text-blue-600');
+                        timeRemainingElem.classList.add('text-gray-500'); // Gray for past events
+                    } else {
+                        timeRemainingElem.classList.remove('text-gray-500');
+                        timeRemainingElem.classList.add('text-blue-600'); // Blue for future events
+                    }
+
+                    // If event has passed and is not stopped, ensure the stop button is visible.
+                    // This handles cases where a future event passes while the app is open.
+                    if (!countdown.stoppedAt && new Date(countdown.targetDate).getTime() < now) {
+                        if (!actionsContainer.querySelector('.bg-yellow-500')) { // Check if button is already there
+                            const stopButton = document.createElement('button');
+                            stopButton.className = 'bg-yellow-500 hover:bg-yellow-600 text-white font-medium py-2 px-4 rounded-md shadow-sm transition duration-150 ease-in-out';
+                            stopButton.textContent = 'Stop Tracking';
+                            stopButton.onclick = () => stopCountdown(index);
+                            // Insert before remove button if remove button exists, otherwise append
+                            const existingRemoveButton = actionsContainer.querySelector('.bg-red-500');
+                            if (existingRemoveButton) {
+                                actionsContainer.insertBefore(stopButton, existingRemoveButton);
+                            } else {
+                                actionsContainer.appendChild(stopButton);
+                            }
+                        }
+                    }
+                };
+                updateTime(); // Initial update
+                countdownIntervals[index] = setInterval(updateTime, 1000); // Store interval ID
+            } else {
+                // For stopped events, just set the final time and don't update
+                timeRemainingElem.textContent = getTimeRemaining(countdown.targetDate, countdown.stoppedAt);
+            }
         }
 
         // Function to render all countdowns
         function renderCountdowns() {
+            // Clear all active intervals before re-rendering
+            for (const key in countdownIntervals) {
+                clearInterval(countdownIntervals[key]);
+                delete countdownIntervals[key];
+            }
+
             countdownsContainer.innerHTML = ''; // Clear existing countdowns
             if (countdowns.length === 0) {
                 noCountdownsMessage.classList.remove('hidden');
@@ -216,9 +296,24 @@
 
         // Function to remove a countdown
         function removeCountdown(indexToRemove) {
+            // Clear the interval associated with the removed countdown
+            if (countdownIntervals[indexToRemove]) {
+                clearInterval(countdownIntervals[indexToRemove]);
+                delete countdownIntervals[indexToRemove];
+            }
+
             countdowns = countdowns.filter((_, index) => index !== indexToRemove);
             updateUrl();
-            renderCountdowns();
+            renderCountdowns(); // Re-render all to adjust indices and intervals
+        }
+
+        // Function to stop a countdown
+        function stopCountdown(indexToStop) {
+            if (countdowns[indexToStop]) {
+                countdowns[indexToStop].stoppedAt = new Date().toISOString(); // Record stop time
+                updateUrl();
+                renderCountdowns(); // Re-render to update the display and clear interval
+            }
         }
 
         // Event listener for adding a new countdown
@@ -248,9 +343,8 @@
             errorMessage.classList.add('hidden'); // Hide error message on success
 
             // Add new countdown
-            // Store as ISO string (which will convert local midnight to its UTC equivalent).
-            // When re-parsed and displayed with toLocaleString(), it will revert to local time.
-            countdowns.push({ description: description, targetDate: targetDateTime.toISOString() });
+            // Initialize 'stoppedAt' as null for new countdowns
+            countdowns.push({ description: description, targetDate: targetDateTime.toISOString(), stoppedAt: null });
             descriptionInput.value = ''; // Clear input
             targetDateInput.value = ''; // Clear input
 
@@ -266,7 +360,12 @@
             if (encodedData) {
                 const decodedData = decodeCountdowns(encodedData);
                 if (Array.isArray(decodedData)) {
-                    countdowns = decodedData;
+                    // Ensure 'stoppedAt' property exists for older saved countdowns
+                    countdowns = decodedData.map(c => ({
+                        description: c.description,
+                        targetDate: c.targetDate,
+                        stoppedAt: c.stoppedAt || null // Default to null if undefined
+                    }));
                 }
             }
 
