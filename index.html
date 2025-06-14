@@ -90,6 +90,40 @@
             Moment Tracker
         </h1>
 
+        <!-- Moment Set Management Section -->
+        <div class="mb-10 p-6 bg-purple-50 rounded-lg border border-purple-200">
+            <h2 class="text-2xl font-bold text-gray-800 mb-5 text-center">Manage Moment Sets</h2>
+            <div class="grid grid-cols-1 md:grid-cols-2 gap-4 mb-4 items-center">
+                <div>
+                    <label for="newSetName" class="block text-sm font-medium text-gray-700 mb-1">New Set Name</label>
+                    <input type="text" id="newSetName" placeholder="e.g., Family Events, Work Deadlines"
+                        class="w-full px-4 py-2 border border-gray-300 rounded-md focus:ring-purple-500 focus:border-purple-500 shadow-sm" />
+                </div>
+                <div class="flex items-end">
+                    <button id="createNewSet"
+                        class="w-full bg-purple-600 hover:bg-purple-700 text-white font-semibold py-2 px-4 rounded-md shadow-md focus:outline-none focus:ring-2 focus:ring-purple-500 focus:ring-offset-2 transition duration-150 ease-in-out transform hover:scale-105">
+                        Create New Set
+                    </button>
+                </div>
+            </div>
+            <div class="grid grid-cols-1 md:grid-cols-2 gap-4">
+                <div>
+                    <label for="momentSetSelector" class="block text-sm font-medium text-gray-700 mb-1">Switch
+                        Set</label>
+                    <select id="momentSetSelector"
+                        class="w-full px-4 py-2 border border-gray-300 rounded-md focus:ring-purple-500 focus:border-purple-500 shadow-sm bg-white">
+                        <!-- Options will be populated by JavaScript -->
+                    </select>
+                </div>
+                <div class="flex items-end">
+                    <p class="text-md font-medium text-gray-700 w-full">Current Set: <span id="currentSetNameDisplay"
+                            class="font-bold text-purple-700"></span></p>
+                </div>
+            </div>
+            <p id="setErrorMessage" class="text-red-600 text-sm mt-2 hidden text-center"></p>
+        </div>
+
+
         <!-- Add New Countdown Section -->
         <div class="mb-10 p-6 bg-blue-50 rounded-lg border border-blue-200">
             <h2 class="text-2xl font-bold text-gray-800 mb-5 text-center">Add a New Moment</h2>
@@ -111,7 +145,7 @@
                     </button>
                 </div>
             </div>
-            <p id="errorMessage" class="text-red-600 text-sm mt-2 hidden text-center"></p>
+            <p id="addMomentErrorMessage" class="text-red-600 text-sm mt-2 hidden text-center"></p>
         </div>
 
         <!-- Action Buttons -->
@@ -146,22 +180,33 @@
         // Set a default font family for the entire document as recommended.
         document.documentElement.style.fontFamily = "'Inter', sans-serif";
 
-        // Array to store countdown objects
-        let countdowns = [];
+        // Global variables for moment sets
+        let momentSets = {}; // Stores all moment sets, keyed by unique ID
+        let currentMomentSetId = null; // ID of the currently active moment set
+
         // Object to store intervals, so we can clear them when a countdown is removed or stopped
         const countdownIntervals = {};
 
-        // Key for localStorage
-        const LOCAL_STORAGE_KEY = 'momentTrackerCountdowns';
+        // Keys for localStorage
+        const LOCAL_STORAGE_SETS_KEY = 'momentTrackerAllSets';
+        const LOCAL_STORAGE_CURRENT_SET_KEY = 'momentTrackerCurrentSetId';
+        const DEFAULT_SET_ID = 'my-moments-default';
 
         // Get DOM elements
         const descriptionInput = document.getElementById('description');
         const targetDateInput = document.getElementById('targetDate');
         const addCountdownButton = document.getElementById('addCountdown');
         const countdownsContainer = document.getElementById('countdownsContainer');
-        const errorMessage = document.getElementById('errorMessage');
+        const addMomentErrorMessage = document.getElementById('addMomentErrorMessage'); // Renamed for clarity
         const noCountdownsMessage = document.getElementById('noCountdownsMessage');
         const shareCollectionButton = document.getElementById('shareCollection');
+
+        // Moment Set Management elements
+        const newSetNameInput = document.getElementById('newSetName');
+        const createNewSetButton = document.getElementById('createNewSet');
+        const momentSetSelector = document.getElementById('momentSetSelector');
+        const currentSetNameDisplay = document.getElementById('currentSetNameDisplay');
+        const setErrorMessage = document.getElementById('setErrorMessage');
 
         // Message box elements
         const messageBoxOverlay = document.getElementById('messageBoxOverlay');
@@ -169,6 +214,14 @@
         const messageBoxContent = document.getElementById('messageBoxContent');
         const messageBoxClose = document.getElementById('messageBoxClose');
         const messageBoxCopy = document.getElementById('messageBoxCopy');
+
+        /**
+         * Generates a simple unique ID.
+         * @returns {string} A unique ID string.
+         */
+        function generateUniqueId() {
+            return 'set_' + Date.now() + '_' + Math.random().toString(36).substr(2, 9);
+        }
 
         /**
          * Encodes the countdowns array into a URL-friendly Base64 string.
@@ -205,68 +258,135 @@
         }
 
         /**
-         * Saves the current countdowns array to localStorage.
+         * Saves all moment sets and the current set ID to localStorage.
          */
-        function saveCountdownsToLocalStorage() {
+        function saveAllSetsToLocalStorage() {
             try {
-                const encodedData = encodeCountdowns(countdowns);
-                localStorage.setItem(LOCAL_STORAGE_KEY, encodedData);
-                console.log("Countdowns saved to localStorage.");
+                localStorage.setItem(LOCAL_STORAGE_SETS_KEY, JSON.stringify(momentSets));
+                localStorage.setItem(LOCAL_STORAGE_CURRENT_SET_KEY, currentMomentSetId);
+                console.log("All moment sets and current set ID saved to localStorage.");
             } catch (e) {
                 console.error("Error saving to localStorage:", e);
-                showMessageBox('Save Error', 'Failed to save your countdowns locally. Data might not persist.');
+                showMessageBox('Save Error', 'Failed to save your moment sets locally. Data might not persist.');
             }
         }
 
         /**
-         * Loads countdowns from localStorage, or from URL if localStorage is empty.
+         * Loads all moment sets and the current set ID from localStorage.
          */
-        function loadCountdowns() {
-            const urlParams = new URLSearchParams(window.location.search);
-            const encodedDataFromUrl = urlParams.get('data');
-            const encodedDataFromLocalStorage = localStorage.getItem(LOCAL_STORAGE_KEY);
+        function loadAllSetsFromLocalStorage() {
+            try {
+                const storedSets = localStorage.getItem(LOCAL_STORAGE_SETS_KEY);
+                const storedCurrentSetId = localStorage.getItem(LOCAL_STORAGE_CURRENT_SET_KEY);
 
-            let dataToLoad = null;
-
-            if (encodedDataFromUrl) {
-                // If there's data in the URL, prioritize it (for sharing)
-                dataToLoad = encodedDataFromUrl;
-                // Optionally, update local storage with this shared data if it's different
-                if (encodedDataFromUrl !== encodedDataFromLocalStorage) {
-                    localStorage.setItem(LOCAL_STORAGE_KEY, encodedDataFromUrl);
-                }
-            } else if (encodedDataFromLocalStorage) {
-                // Otherwise, load from local storage
-                dataToLoad = encodedDataFromLocalStorage;
-            }
-
-            if (dataToLoad) {
-                try {
-                    const decodedData = decodeCountdowns(dataToLoad);
-                    if (Array.isArray(decodedData)) {
-                        countdowns = decodedData.map(c => ({
+                if (storedSets) {
+                    momentSets = JSON.parse(storedSets);
+                    // Ensure each loaded set has the 'stoppedAt' property properly initialized
+                    for (const setId in momentSets) {
+                        momentSets[setId] = momentSets[setId].map(c => ({
                             description: c.description,
                             targetDate: c.targetDate,
                             stoppedAt: c.stoppedAt || null
                         }));
-                        console.log("Countdowns loaded:", countdowns.length, "items.");
+                    }
+                } else {
+                    momentSets = {};
+                }
+
+                // If no sets loaded or storedCurrentSetId is invalid, create a default set
+                if (Object.keys(momentSets).length === 0 || !momentSets[storedCurrentSetId]) {
+                    momentSets[DEFAULT_SET_ID] = [];
+                    currentMomentSetId = DEFAULT_SET_ID;
+                    momentSets[DEFAULT_SET_ID].name = "My Moments"; // Default name for the default set
+                } else {
+                    currentMomentSetId = storedCurrentSetId;
+                }
+                console.log("All moment sets and current set ID loaded from localStorage.");
+
+            } catch (e) {
+                console.error("Error loading from localStorage:", e);
+                momentSets = { [DEFAULT_SET_ID]: [] }; // Fallback to a fresh default set on error
+                currentMomentSetId = DEFAULT_SET_ID;
+                momentSets[DEFAULT_SET_ID].name = "My Moments";
+                showMessageBox('Load Error', 'Failed to load your moment sets. Data might be corrupted. Starting with a new set.');
+            }
+        }
+
+        /**
+         * Initializes the application, checking for shared URLs or loading from local storage.
+         */
+        function initializeApp() {
+            const urlParams = new URLSearchParams(window.location.search);
+            const encodedDataFromUrl = urlParams.get('data');
+
+            if (encodedDataFromUrl) {
+                // If there's data in the URL, treat it as a shared collection
+                try {
+                    const decodedData = decodeCountdowns(encodedDataFromUrl);
+                    if (Array.isArray(decodedData)) {
+                        const sharedSetId = generateUniqueId();
+                        momentSets = { // Start with only this shared set for the session
+                            [sharedSetId]: decodedData.map(c => ({
+                                description: c.description,
+                                targetDate: c.targetDate,
+                                stoppedAt: c.stoppedAt || null
+                            }))
+                        };
+                        momentSets[sharedSetId].name = "Shared Collection";
+                        currentMomentSetId = sharedSetId;
+                        console.log("Loaded shared collection from URL.");
+                        // Clear the URL parameter so refreshing doesn't re-add as a new shared set
+                        window.history.replaceState(null, '', window.location.pathname);
+                        showMessageBox('Shared Collection Loaded!', 'You are viewing a shared collection. It will not be saved to your default sets unless you modify it and save manually, or create a new set.');
                     }
                 } catch (e) {
-                    console.error("Error loading or parsing countdowns:", e);
-                    countdowns = []; // Reset on parsing error
-                    showMessageBox('Load Error', 'Failed to load countdowns. Data might be corrupted. Starting fresh.');
+                    console.error("Error decoding shared URL data:", e);
+                    showMessageBox('Load Error', 'Failed to load shared collection. Data might be corrupted.');
+                    loadAllSetsFromLocalStorage(); // Fallback to local sets
                 }
+            } else {
+                // Otherwise, load from local storage
+                loadAllSetsFromLocalStorage();
             }
+
+            renderSetSelector();
             renderCountdowns();
         }
 
-        // Function to update the URL (used primarily for sharing now)
-        function updateUrlForSharing() {
-            const encodedData = encodeCountdowns(countdowns);
-            // We use history.pushState here to create a new history entry,
-            // so the user can easily go back to a non-shared URL if desired,
-            // but the main usage will be copying this URL.
-            window.history.pushState(null, '', `?data=${encodedData}`);
+        /**
+         * Renders the moment set selector dropdown and updates the current set display.
+         */
+        function renderSetSelector() {
+            momentSetSelector.innerHTML = ''; // Clear existing options
+            let hasSelected = false;
+
+            for (const id in momentSets) {
+                const option = document.createElement('option');
+                option.value = id;
+                // Use a default name if 'name' property is missing
+                option.textContent = momentSets[id].name || `Unnamed Set (${id.substring(0, 8)}...)`;
+                if (id === currentMomentSetId) {
+                    option.selected = true;
+                    hasSelected = true;
+                }
+                momentSetSelector.appendChild(option);
+            }
+
+            // If currentMomentSetId is somehow not found in options (e.g., deleted externally),
+            // default to the first available set or the default set.
+            if (!hasSelected && Object.keys(momentSets).length > 0) {
+                currentMomentSetId = Object.keys(momentSets)[0];
+                momentSetSelector.value = currentMomentSetId;
+            } else if (Object.keys(momentSets).length === 0) {
+                // If no sets at all, ensure a default is created
+                momentSets[DEFAULT_SET_ID] = [];
+                momentSets[DEFAULT_SET_ID].name = "My Moments";
+                currentMomentSetId = DEFAULT_SET_ID;
+                renderSetSelector(); // Re-render after creating default
+                return;
+            }
+
+            currentSetNameDisplay.textContent = momentSets[currentMomentSetId].name || `Unnamed Set (${currentMomentSetId.substring(0, 8)}...)`;
         }
 
         /**
@@ -403,7 +523,7 @@
             }
         }
 
-        // Function to render all countdowns
+        // Function to render all countdowns for the current moment set
         function renderCountdowns() {
             // Clear all active intervals before re-rendering
             for (const key in countdownIntervals) {
@@ -412,17 +532,19 @@
             }
 
             countdownsContainer.innerHTML = ''; // Clear existing countdowns
-            if (countdowns.length === 0) {
+            const currentSetCountdowns = momentSets[currentMomentSetId] || [];
+
+            if (currentSetCountdowns.length === 0) {
                 noCountdownsMessage.classList.remove('hidden');
             } else {
                 noCountdownsMessage.classList.add('hidden');
-                countdowns.forEach((countdown, index) => {
+                currentSetCountdowns.forEach((countdown, index) => {
                     renderCountdownCard(countdown, index);
                 });
             }
         }
 
-        // Function to remove a countdown
+        // Function to remove a countdown from the current set
         function removeCountdown(indexToRemove) {
             // Clear the interval associated with the removed countdown
             if (countdownIntervals[indexToRemove]) {
@@ -430,16 +552,18 @@
                 delete countdownIntervals[indexToRemove];
             }
 
-            countdowns = countdowns.filter((_, index) => index !== indexToRemove);
-            saveCountdownsToLocalStorage(); // Save changes to localStorage
-            renderCountdowns(); // Re-render all to adjust indices and intervals
+            if (momentSets[currentMomentSetId]) {
+                momentSets[currentMomentSetId] = momentSets[currentMomentSetId].filter((_, index) => index !== indexToRemove);
+                saveAllSetsToLocalStorage(); // Save changes to localStorage
+                renderCountdowns(); // Re-render all to adjust indices and intervals
+            }
         }
 
-        // Function to stop a countdown
+        // Function to stop a countdown in the current set
         function stopCountdown(indexToStop) {
-            if (countdowns[indexToStop]) {
-                countdowns[indexToStop].stoppedAt = new Date().toISOString(); // Record stop time
-                saveCountdownsToLocalStorage(); // Save changes to localStorage
+            if (momentSets[currentMomentSetId] && momentSets[currentMomentSetId][indexToStop]) {
+                momentSets[currentMomentSetId][indexToStop].stoppedAt = new Date().toISOString(); // Record stop time
+                saveAllSetsToLocalStorage(); // Save changes to localStorage
                 renderCountdowns(); // Re-render to update the display and clear interval
             }
         }
@@ -453,8 +577,8 @@
 
             // Validate inputs
             if (!description || !targetDateStr) {
-                errorMessage.textContent = 'Please fill in both description and target date.';
-                errorMessage.classList.remove('hidden');
+                addMomentErrorMessage.textContent = 'Please fill in both description and target date.';
+                addMomentErrorMessage.classList.remove('hidden');
                 return;
             }
 
@@ -465,28 +589,74 @@
             const targetDateTime = new Date(targetDateParts[0], targetDateParts[1] - 1, targetDateParts[2], 0, 0, 0);
 
             if (isNaN(targetDateTime.getTime())) { // Check for invalid date
-                errorMessage.textContent = 'Invalid date format. Please use the date picker.';
-                errorMessage.classList.remove('hidden');
+                addMomentErrorMessage.textContent = 'Invalid date format. Please use the date picker.';
+                addMomentErrorMessage.classList.remove('hidden');
                 return;
             }
 
-            errorMessage.classList.add('hidden'); // Hide error message on success
+            addMomentErrorMessage.classList.add('hidden'); // Hide error message on success
 
-            // Add new countdown
-            // Initialize 'stoppedAt' as null for new countdowns
-            countdowns.push({ description: description, targetDate: targetDateTime.toISOString(), stoppedAt: null });
+            // Add new countdown to the current moment set
+            if (!momentSets[currentMomentSetId]) {
+                momentSets[currentMomentSetId] = []; // Initialize if somehow null
+            }
+            momentSets[currentMomentSetId].push({ description: description, targetDate: targetDateTime.toISOString(), stoppedAt: null });
             descriptionInput.value = ''; // Clear input
             targetDateInput.value = ''; // Clear input
 
-            saveCountdownsToLocalStorage(); // Save changes to localStorage
+            saveAllSetsToLocalStorage(); // Save all sets including this change
             renderCountdowns();
         });
 
         // Event listener for Share Collection button
         shareCollectionButton.addEventListener('click', () => {
-            updateUrlForSharing(); // Update URL with current data for sharing
-            const shareableLink = window.location.href; // Get the full current URL
+            if (!currentMomentSetId || !momentSets[currentMomentSetId]) {
+                showMessageBox('Share Error', 'No active collection to share.');
+                return;
+            }
+            const currentSetData = momentSets[currentMomentSetId];
+            const encodedData = encodeCountdowns(currentSetData);
+            const shareableLink = `${window.location.origin}${window.location.pathname}?data=${encodedData}`;
+
             showMessageBox('Share Your Collection', 'Copy this link to share your current countdowns:', shareableLink);
+        });
+
+        // Event listener for Create New Set button
+        createNewSetButton.addEventListener('click', () => {
+            const newName = newSetNameInput.value.trim();
+            if (!newName) {
+                setErrorMessage.textContent = 'Please enter a name for the new set.';
+                setErrorMessage.classList.remove('hidden');
+                return;
+            }
+
+            // Check for duplicate names (case-insensitive)
+            const existingNames = Object.values(momentSets).map(set => set.name && set.name.toLowerCase());
+            if (existingNames.includes(newName.toLowerCase())) {
+                setErrorMessage.textContent = `A set named "${newName}" already exists. Please choose a different name.`;
+                setErrorMessage.classList.remove('hidden');
+                return;
+            }
+
+            setErrorMessage.classList.add('hidden'); // Hide error message on success
+
+            const newSetId = generateUniqueId();
+            momentSets[newSetId] = [];
+            momentSets[newSetId].name = newName; // Store the name
+            currentMomentSetId = newSetId;
+
+            newSetNameInput.value = ''; // Clear input
+            saveAllSetsToLocalStorage();
+            renderSetSelector();
+            renderCountdowns();
+        });
+
+        // Event listener for Moment Set Selector change
+        momentSetSelector.addEventListener('change', (event) => {
+            currentMomentSetId = event.target.value;
+            saveAllSetsToLocalStorage(); // Save the new current set ID
+            renderSetSelector(); // Update the display name
+            renderCountdowns(); // Render the countdowns for the new set
         });
 
         // --- Message Box Functions ---
@@ -544,7 +714,7 @@
         }
 
         // --- Initial Load ---
-        window.onload = loadCountdowns;
+        window.onload = initializeApp;
     </script>
 </body>
 
